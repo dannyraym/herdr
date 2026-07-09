@@ -306,6 +306,18 @@ impl App {
                 self.zoom_focused_pane_via_api();
                 leave_navigate_mode(&mut self.state);
             }
+            NavigateAction::StackPane => {
+                self.new_stacked_pane_via_api();
+                leave_navigate_mode(&mut self.state);
+            }
+            NavigateAction::UnstackPane => {
+                self.unstack_focused_pane_via_api();
+                leave_navigate_mode(&mut self.state);
+            }
+            NavigateAction::BreakPane => {
+                self.break_pane_via_api();
+                leave_navigate_mode(&mut self.state);
+            }
             NavigateAction::EnterResizeMode => self.state.mode = Mode::Resize,
             NavigateAction::ToggleSidebar => {
                 self.state.sidebar_collapsed = !self.state.sidebar_collapsed;
@@ -487,6 +499,23 @@ impl App {
                 cwd: None,
                 focus: true,
                 env: Default::default(),
+                stacked: false,
+            },
+        );
+    }
+
+    pub(crate) fn new_stacked_pane_via_api(&mut self) {
+        self.runtime_pane_split(
+            "tui.pane.split_stacked",
+            crate::api::schema::PaneSplitParams {
+                workspace_id: None,
+                target_pane_id: None,
+                direction: crate::api::schema::SplitDirection::Down,
+                ratio: None,
+                cwd: None,
+                focus: true,
+                env: Default::default(),
+                stacked: true,
             },
         );
     }
@@ -508,6 +537,49 @@ impl App {
             crate::api::schema::PaneZoomParams {
                 pane_id: None,
                 mode: crate::api::schema::PaneZoomMode::Toggle,
+            },
+        );
+    }
+
+    pub(crate) fn unstack_focused_pane_via_api(&mut self) {
+        self.runtime_pane_unstack(
+            "tui.pane.unstack",
+            crate::api::schema::PaneStackParams { pane_id: None },
+        );
+    }
+
+    pub(crate) fn break_pane_via_api(&mut self) {
+        let Some((ws_idx, pane_id)) = self.focused_pane_target() else {
+            return;
+        };
+        let can_break = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.active_tab())
+            .is_some_and(|tab| tab.layout.pane_count() > 1);
+        if !can_break {
+            return;
+        }
+        let label = self
+            .state
+            .workspaces
+            .get(ws_idx)
+            .and_then(|ws| ws.terminal_id(pane_id))
+            .and_then(|terminal_id| self.state.terminals.get(terminal_id))
+            .and_then(|terminal| terminal.manual_label.clone());
+        let Some(pane_id) = self.public_pane_id(ws_idx, pane_id) else {
+            return;
+        };
+        self.runtime_pane_move(
+            "tui.pane.break",
+            crate::api::schema::PaneMoveParams {
+                pane_id,
+                destination: crate::api::schema::PaneMoveDestination::NewTab {
+                    workspace_id: None,
+                    label,
+                },
+                focus: true,
             },
         );
     }
@@ -1236,6 +1308,9 @@ pub(crate) enum NavigateAction {
     EditScrollback,
     CopyMode,
     Zoom,
+    StackPane,
+    UnstackPane,
+    BreakPane,
     EnterResizeMode,
     ToggleSidebar,
     CyclePaneNext,
@@ -1343,6 +1418,9 @@ fn action_for_key(
         (&kb.split_horizontal, NavigateAction::SplitHorizontal),
         (&kb.close_pane, NavigateAction::ClosePane),
         (&kb.zoom, NavigateAction::Zoom),
+        (&kb.stack_pane, NavigateAction::StackPane),
+        (&kb.unstack_pane, NavigateAction::UnstackPane),
+        (&kb.break_pane, NavigateAction::BreakPane),
         (&kb.resize_mode, NavigateAction::EnterResizeMode),
         (&kb.toggle_sidebar, NavigateAction::ToggleSidebar),
         (&kb.reload_config, NavigateAction::ReloadConfig),
@@ -1547,6 +1625,18 @@ pub(super) fn execute_navigate_action_in_context(
         NavigateAction::CopyMode => state.enter_copy_mode(terminal_runtimes),
         NavigateAction::Zoom => {
             state.toggle_zoom();
+            leave_navigate_mode(state);
+        }
+        NavigateAction::StackPane => {
+            state.new_stacked_pane(terminal_runtimes);
+            leave_navigate_mode(state);
+        }
+        NavigateAction::UnstackPane => {
+            state.unstack_pane();
+            leave_navigate_mode(state);
+        }
+        NavigateAction::BreakPane => {
+            state.break_pane();
             leave_navigate_mode(state);
         }
         NavigateAction::EnterResizeMode => state.mode = Mode::Resize,
@@ -2554,10 +2644,147 @@ last_pane = "prefix+tab"
         assert_eq!(state.mode, Mode::KeybindHelp);
     }
 
+    #[tokio::test]
+    async fn stack_pane_action_stacks_new_pane_in_place_preserving_splits() {
+        let mut state = state_with_workspaces(&["test"]);
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        let left = state.workspaces[0].tabs[0].root_pane;
+        let right = state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+
+        execute_navigate_action_in_context(
+            &mut state,
+            &mut terminal_runtimes,
+            NavigateAction::StackPane,
+            ActionContext::Navigate,
+        );
+
+        let tab = state.workspaces[0].active_tab().expect("active tab");
+        let stacked_new_pane = tab.layout.focused();
+        assert_ne!(stacked_new_pane, right);
+        assert!(tab.layout.pane_in_stack(right));
+        assert!(tab.layout.pane_in_stack(stacked_new_pane));
+        assert!(!tab.layout.pane_in_stack(left));
+        assert!(matches!(
+            tab.layout.root(),
+            crate::layout::Node::Split { .. }
+        ));
+        assert_eq!(tab.layout.pane_count(), 3);
+
+        // Pressing again grows the same stack instead of touching the split.
+        execute_navigate_action_in_context(
+            &mut state,
+            &mut terminal_runtimes,
+            NavigateAction::StackPane,
+            ActionContext::Navigate,
+        );
+
+        let tab = state.workspaces[0].active_tab().expect("active tab");
+        assert_eq!(tab.layout.pane_count(), 4);
+        assert!(!tab.layout.pane_in_stack(left));
+        assert!(matches!(
+            tab.layout.root(),
+            crate::layout::Node::Split { .. }
+        ));
+        state.workspaces[0].assert_invariants_for_test();
+    }
+
+    #[tokio::test]
+    async fn break_pane_action_moves_focused_pane_into_new_tab() {
+        let mut state = state_with_workspaces(&["test"]);
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        let left = state.workspaces[0].tabs[0].root_pane;
+        let right = state.workspaces[0].test_split(ratatui::layout::Direction::Horizontal);
+        assert_eq!(state.workspaces[0].tabs.len(), 1);
+
+        execute_navigate_action_in_context(
+            &mut state,
+            &mut terminal_runtimes,
+            NavigateAction::BreakPane,
+            ActionContext::Navigate,
+        );
+
+        let ws = &state.workspaces[0];
+        assert_eq!(ws.tabs.len(), 2);
+        assert_eq!(ws.tabs[0].layout.pane_count(), 1);
+        assert_eq!(ws.tabs[0].layout.focused(), left);
+        let active_tab = ws.active_tab().expect("active tab");
+        assert_eq!(active_tab.layout.pane_count(), 1);
+        assert_eq!(active_tab.layout.focused(), right);
+        assert!(active_tab.custom_name.is_none());
+        state.workspaces[0].assert_invariants_for_test();
+    }
+
+    #[tokio::test]
+    async fn break_pane_action_is_noop_for_single_pane_tab() {
+        let mut state = state_with_workspaces(&["test"]);
+        let mut terminal_runtimes = TerminalRuntimeRegistry::new();
+        let root = state.workspaces[0].tabs[0].root_pane;
+
+        execute_navigate_action_in_context(
+            &mut state,
+            &mut terminal_runtimes,
+            NavigateAction::BreakPane,
+            ActionContext::Navigate,
+        );
+
+        assert_eq!(state.workspaces[0].tabs.len(), 1);
+        assert_eq!(state.workspaces[0].tabs[0].layout.focused(), root);
+        state.workspaces[0].assert_invariants_for_test();
+    }
+
+    #[tokio::test]
+    async fn prefix_break_pane_moves_focused_pane_into_new_tab_via_api() {
+        let (_api_tx, api_rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut app = App::new(
+            &Config::default(),
+            true,
+            None,
+            api_rx,
+            crate::api::EventHub::default(),
+        );
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.mode = Mode::Terminal;
+        let left = app.state.workspaces[0].tabs[0].root_pane;
+        let right = app.state.workspaces[0].test_split(Direction::Horizontal);
+        let right_terminal_id = app.state.workspaces[0]
+            .terminal_id(right)
+            .cloned()
+            .expect("terminal id");
+        let mut terminal =
+            crate::terminal::TerminalState::new(right_terminal_id.clone(), "/".into());
+        terminal.set_manual_label("build".into());
+        app.state.terminals.insert(right_terminal_id, terminal);
+
+        app.handle_key(TerminalKey::new(
+            app.state.prefix_code,
+            app.state.prefix_mods,
+        ))
+        .await;
+        app.handle_key(TerminalKey::new(KeyCode::Char('B'), KeyModifiers::SHIFT))
+            .await;
+
+        let ws = &app.state.workspaces[0];
+        assert_eq!(ws.tabs.len(), 2);
+        assert_eq!(ws.tabs[0].layout.pane_count(), 1);
+        assert_eq!(ws.tabs[0].layout.focused(), left);
+        let active_tab = ws.active_tab().expect("active tab");
+        assert_eq!(active_tab.layout.pane_count(), 1);
+        assert_eq!(active_tab.layout.focused(), right);
+        assert_eq!(active_tab.custom_name.as_deref(), Some("build"));
+        assert_eq!(app.state.mode, Mode::Terminal);
+        app.state.workspaces[0].assert_invariants_for_test();
+    }
+
     #[test]
     fn modified_navigate_local_key_can_be_bound_as_prefix_rhs() {
         let mut state = state_with_workspaces(&["test"]);
         state.keybinds.toggle_sidebar = crate::config::ActionKeybinds::prefix("shift+u");
+        // The registry would drop the default unstack_pane binding when a
+        // user claims prefix+shift+u; this test bypasses the registry, so
+        // clear it manually.
+        state.keybinds.unstack_pane = crate::config::ActionKeybinds::default();
 
         handle_navigate_key(
             &mut state,

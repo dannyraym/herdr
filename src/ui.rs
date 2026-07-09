@@ -1157,6 +1157,7 @@ mod tests {
             scrollbar_rect: Some(Rect::new(10, 1, 1, 6)),
             borders: ratatui::widgets::Borders::ALL,
             is_focused: true,
+            collapsed: false,
         };
 
         assert_eq!(pane_scrollbar_rect(&info), Some(Rect::new(10, 1, 1, 6)));

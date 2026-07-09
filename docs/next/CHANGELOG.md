@@ -3,6 +3,8 @@
 ## Unreleased
 
 ### Added
+- Added zellij-style pane stacking: `prefix+shift+s` or the pane context menu's `Stack pane` opens a new pane stacked onto the focused pane inside its layout slot, collapsed panes render as one-line title bars with agent status, focusing a collapsed pane expands it, directional splits treat a stack as a single pane and split its region, and `prefix+shift+u` peels one edge pane off the stack. Stacks persist across restore/handoff and are exposed through `pane.split` with `stacked: true`, `pane.stack`, `pane.unstack`, `herdr pane split --stacked`, `herdr pane stack|unstack`, and `stack` nodes in `pane.layout`/`layout.export`/`layout.apply`.
+- Added `break_pane` (`prefix+shift+b`) to break the focused pane out into its own new tab, keeping its running process and scrollback. The new tab inherits the pane's name when one is set, and breaking a tab's only pane is a no-op. The equivalent programmatic paths already exist as `pane.move` with a `new_tab` destination and `herdr pane move <pane_id> --new-tab`.
 - Added `ui.sidebar_collapsed_mode = "hidden"` to make a collapsed sidebar use zero width while keeping the existing compact rail as the default. (#842)
 - Added `herdr completion <shell>` / `herdr completions <shell>` to generate shell completion scripts for bash, elvish, fish, PowerShell, and zsh. (#435)
 - Added `session.snapshot` to bootstrap client runtime state in one socket API response before subscribing to events.
@@ -13,6 +15,7 @@
 - Added `ui.hide_tab_bar_when_single_tab` to hide the tab row when a workspace has one tab. (#448)
 
 ### Changed
+- Bumped the client/server protocol version to 17 for the pane stacking socket API methods and layout node shape.
 - Bumped the client/server protocol version to 16 for foreground-client prefix input-source switching.
 - Bumped the client/server protocol version to 15 for socket API placement mutation event and response compatibility.
 

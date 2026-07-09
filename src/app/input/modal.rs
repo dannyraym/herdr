@@ -848,6 +848,22 @@ pub(super) fn apply_context_menu_action(
                 pane_id,
                 ..
             },
+            Some("Stack pane"),
+        ) => {
+            state.selected = ws_idx;
+            state.active = Some(ws_idx);
+            state.switch_tab(tab_idx);
+            state.focus_pane_in_workspace(ws_idx, pane_id);
+            state.new_stacked_pane(terminal_runtimes);
+            state.mode = Mode::Terminal;
+        }
+        (
+            ContextMenuKind::Pane {
+                ws_idx,
+                tab_idx,
+                pane_id,
+                ..
+            },
             Some("Zoom"),
         ) => {
             state.selected = ws_idx;
@@ -1236,6 +1252,16 @@ impl App {
             ) => {
                 self.focus_pane_internal_via_api(ws_idx, pane_id);
                 self.split_focused_pane_via_api(crate::api::schema::SplitDirection::Down);
+                self.state.mode = Mode::Terminal;
+            }
+            (
+                ContextMenuKind::Pane {
+                    ws_idx, pane_id, ..
+                },
+                Some("Stack pane"),
+            ) => {
+                self.focus_pane_internal_via_api(ws_idx, pane_id);
+                self.new_stacked_pane_via_api();
                 self.state.mode = Mode::Terminal;
             }
             (

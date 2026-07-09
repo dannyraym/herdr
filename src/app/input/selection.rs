@@ -191,6 +191,7 @@ mod autoscroll_tests {
             scrollbar_rect: None,
             borders: ratatui::widgets::Borders::NONE,
             is_focused: true,
+            collapsed: false,
         });
         (state, pane_id)
     }
@@ -210,6 +211,7 @@ mod autoscroll_tests {
             scrollbar_rect: None,
             borders: ratatui::widgets::Borders::NONE,
             is_focused: true,
+            collapsed: false,
         });
         // Anchor at (5, 10), drag to different cell above pane
         let mut sel = crate::selection::Selection::anchor(pane_id, 5, 10, None);

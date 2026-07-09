@@ -572,6 +572,40 @@ impl AppState {
             }
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn new_stacked_pane(
+        &mut self,
+        terminal_runtimes: &mut crate::terminal::TerminalRuntimeRegistry,
+    ) {
+        let Some(ws_idx) = self.active else {
+            return;
+        };
+        let Some(target) = self
+            .workspaces
+            .get(ws_idx)
+            .and_then(crate::workspace::Workspace::focused_pane_id)
+        else {
+            return;
+        };
+        self.split_pane(terminal_runtimes, Direction::Vertical);
+        let Some(tab) = self
+            .workspaces
+            .get_mut(ws_idx)
+            .and_then(|ws| ws.active_tab_mut())
+        else {
+            return;
+        };
+        let new_pane = tab.layout.focused();
+        if new_pane == target {
+            return;
+        }
+        if tab.layout.pane_in_stack(target) {
+            tab.layout.join_stack(target, new_pane);
+        } else {
+            tab.layout.stack_panes(&[target, new_pane], 1);
+        }
+    }
 }
 
 #[cfg(test)]
@@ -648,7 +682,9 @@ fn capture_snapshot(state: &AppState) -> crate::persist::SessionSnapshot {
 fn root_layout_ratio(snapshot: &crate::persist::SessionSnapshot) -> Option<f32> {
     match &snapshot.workspaces.first()?.tabs.first()?.layout {
         crate::persist::LayoutSnapshot::Split { ratio, .. } => Some(*ratio),
-        crate::persist::LayoutSnapshot::Pane(_) => None,
+        crate::persist::LayoutSnapshot::Pane(_) | crate::persist::LayoutSnapshot::Stack { .. } => {
+            None
+        }
     }
 }
 

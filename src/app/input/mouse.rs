@@ -435,20 +435,29 @@ impl AppState {
                 }
 
                 if !in_sidebar {
-                    if let Some(border) = self.find_border_at(mouse.column, mouse.row) {
-                        let grab_offset = match border.direction {
-                            Direction::Horizontal => border.pos.saturating_sub(mouse.column),
-                            Direction::Vertical => border.pos.saturating_sub(mouse.row),
-                        };
-                        self.drag = Some(DragState {
-                            target: DragTarget::PaneSplit {
-                                path: border.path.clone(),
-                                direction: border.direction,
-                                area: border.area,
-                                grab_offset,
-                            },
-                        });
-                        return None;
+                    // A collapsed stack bar can share its row with a split
+                    // divider's grab zone; focusing the bar wins over
+                    // starting a resize drag, otherwise edge bars are
+                    // unclickable.
+                    let on_collapsed_bar = self
+                        .pane_frame_at(mouse.column, mouse.row)
+                        .is_some_and(|info| info.collapsed);
+                    if !on_collapsed_bar {
+                        if let Some(border) = self.find_border_at(mouse.column, mouse.row) {
+                            let grab_offset = match border.direction {
+                                Direction::Horizontal => border.pos.saturating_sub(mouse.column),
+                                Direction::Vertical => border.pos.saturating_sub(mouse.row),
+                            };
+                            self.drag = Some(DragState {
+                                target: DragTarget::PaneSplit {
+                                    path: border.path.clone(),
+                                    direction: border.direction,
+                                    area: border.area,
+                                    grab_offset,
+                                },
+                            });
+                            return None;
+                        }
                     }
 
                     if let Some((pane_id, target)) =
@@ -2783,6 +2792,55 @@ mod tests {
 
         let after = capture_snapshot(&app.state);
         assert_ne!(root_layout_ratio(&before), root_layout_ratio(&after));
+    }
+
+    #[test]
+    fn clicking_collapsed_stack_bar_on_split_divider_focuses_it() {
+        let mut app = app_for_mouse_test();
+        app.state.workspaces = vec![Workspace::test_new("test")];
+        app.state.active = Some(0);
+        app.state.selected = 0;
+        app.state.pane_gaps = false;
+        let bottom = app.state.workspaces[0].test_split(Direction::Vertical);
+        let joined = app.state.workspaces[0].test_split(Direction::Vertical);
+        assert!(app.state.workspaces[0]
+            .layout
+            .stack_panes(&[bottom, joined], 1));
+        crate::ui::compute_view(&mut app.state, Rect::new(0, 0, 106, 20));
+
+        let border = app.state.view.split_borders[0].clone();
+        let bar = app
+            .state
+            .view
+            .pane_infos
+            .iter()
+            .find(|info| info.id == bottom)
+            .expect("collapsed bar info")
+            .clone();
+        assert!(bar.collapsed);
+        assert_eq!(
+            bar.rect.y, border.pos,
+            "the bar should sit on the divider row for this regression"
+        );
+
+        app.handle_mouse(mouse(
+            MouseEventKind::Down(MouseButton::Left),
+            bar.rect.x.saturating_add(2),
+            bar.rect.y,
+        ));
+
+        assert!(
+            app.state.drag.is_none(),
+            "click must not start a resize drag"
+        );
+        assert_eq!(app.state.workspaces[0].focused_pane_id(), Some(bottom));
+        assert_eq!(
+            app.state.workspaces[0]
+                .layout
+                .expanded_pane_of_stack_containing(joined),
+            Some(bottom),
+            "clicking the bar should expand it"
+        );
     }
 
     #[test]

@@ -9,7 +9,7 @@ use super::integrations::{
 use super::panes::{
     LayoutDescription, PaneEdgesResult, PaneFocusDirectionResult, PaneInfo, PaneLayoutSnapshot,
     PaneMoveResult, PaneNeighborResult, PaneProcessInfo, PaneReadResult, PaneResizeResult,
-    PaneSwapResult, PaneZoomResult,
+    PaneStackResult, PaneSwapResult, PaneZoomResult,
 };
 use super::plugins::{
     InstalledPluginInfo, PluginActionInfo, PluginCommandLogInfo, PluginInvocationContext,
@@ -121,6 +121,12 @@ pub enum ResponseResult {
     },
     PaneZoom {
         zoom: PaneZoomResult,
+    },
+    PaneStack {
+        stack: PaneStackResult,
+    },
+    PaneUnstack {
+        unstack: PaneStackResult,
     },
     PaneLayout {
         layout: PaneLayoutSnapshot,

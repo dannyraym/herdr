@@ -205,6 +205,9 @@ const DEFAULT_CONFIG: &str = r##"# herdr configuration
 # split_horizontal = "prefix+minus"
 # close_pane = "prefix+x"
 # zoom = "prefix+z"       # legacy alias: fullscreen
+# stack_pane = "prefix+shift+s"    # opens a new pane stacked onto the focused pane
+# unstack_pane = "prefix+shift+u"  # peels one edge pane off the focused pane's stack
+# break_pane = "prefix+shift+b"    # breaks the focused pane out into a new tab
 # resize_mode = "prefix+r"
 # toggle_sidebar = "prefix+b"
 
