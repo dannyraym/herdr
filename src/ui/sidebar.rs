@@ -803,11 +803,156 @@ pub(super) fn render_sidebar(
         buf[(sep_x, y)].set_style(sep_style);
     }
 
-    let (ws_area, detail_area) = expanded_sidebar_sections(area, app.sidebar_section_split);
+    let sections_area = app.sidebar_sections_area_from(area);
+    let (ws_area, detail_area) =
+        expanded_sidebar_sections(sections_area, app.sidebar_section_split);
 
     render_workspace_list(app, terminal_runtimes, frame, ws_area, is_navigating);
     render_agent_detail(app, terminal_runtimes, frame, detail_area);
+    render_spotify_widget(app, frame);
     render_sidebar_toggle(app, frame, area, false, p);
+}
+
+fn render_spotify_widget(app: &AppState, frame: &mut Frame) {
+    let widget = app.spotify_widget_rect();
+    if widget == Rect::default() {
+        return;
+    }
+    let Some(now_playing) = app.spotify_now_playing.as_ref() else {
+        return;
+    };
+    let p = &app.palette;
+
+    // Title row: two-tone when it fits, single-tone marquee when it overflows.
+    let title_cols = widget.width.saturating_sub(2) as usize;
+    let full_title = if now_playing.artist.is_empty() {
+        now_playing.track.clone()
+    } else {
+        format!("{} — {}", now_playing.track, now_playing.artist)
+    };
+    let mut title_spans = vec![Span::styled("♪ ", Style::default().fg(p.green))];
+    if full_title.chars().count() <= title_cols {
+        title_spans.push(Span::styled(
+            now_playing.track.clone(),
+            Style::default().fg(p.text),
+        ));
+        if !now_playing.artist.is_empty() {
+            title_spans.push(Span::styled(
+                format!(" — {}", now_playing.artist),
+                Style::default().fg(p.subtext0),
+            ));
+        }
+    } else {
+        title_spans.push(Span::styled(
+            marquee_slice(&full_title, title_cols, app.spotify_marquee_offset),
+            Style::default().fg(p.text),
+        ));
+    }
+    frame.render_widget(
+        Paragraph::new(Line::from(title_spans)),
+        app.spotify_title_rect(),
+    );
+
+    let bar = app.spotify_progress_rect();
+    if bar.width > 0 {
+        let position = app.spotify_display_position_secs();
+        let duration = now_playing.duration_secs;
+        let filled = if duration > 0.0 {
+            (((position / duration) * f64::from(bar.width)).round() as u16).min(bar.width)
+        } else {
+            0
+        };
+        let rest = bar.width - filled;
+        frame.render_widget(
+            Paragraph::new(Line::from(vec![
+                Span::styled("━".repeat(filled as usize), Style::default().fg(p.accent)),
+                Span::styled(
+                    "─".repeat(rest as usize),
+                    Style::default().fg(p.surface_dim),
+                ),
+            ])),
+            bar,
+        );
+        let time_x = bar.x + bar.width + 1;
+        let widget_right = widget.x + widget.width;
+        if duration > 0.0 && time_x < widget_right {
+            let time = format!("{}/{}", format_mmss(position), format_mmss(duration));
+            frame.render_widget(
+                Paragraph::new(Span::styled(time, Style::default().fg(p.overlay0))),
+                Rect::new(time_x, bar.y, widget_right - time_x, 1),
+            );
+        }
+    }
+
+    for (control, rect) in app.spotify_button_rects() {
+        let (glyph, style) = match control {
+            crate::platform::SpotifyControl::PlayPause => (
+                if now_playing.playing { "⏸" } else { "▶" },
+                Style::default().fg(p.accent).add_modifier(Modifier::BOLD),
+            ),
+            crate::platform::SpotifyControl::PreviousTrack => {
+                ("⏮", Style::default().fg(p.overlay0))
+            }
+            crate::platform::SpotifyControl::NextTrack => ("⏭", Style::default().fg(p.overlay0)),
+            _ => continue,
+        };
+        frame.render_widget(
+            Paragraph::new(Span::styled(glyph, style)),
+            Rect::new(
+                rect.x + 1,
+                rect.y,
+                rect.width.saturating_sub(1),
+                rect.height,
+            ),
+        );
+    }
+
+    for (control, rect) in app.spotify_toggle_rects() {
+        if rect.width == 0 {
+            continue;
+        }
+        let (glyph, active) = match control {
+            crate::platform::SpotifyControl::ToggleShuffle => ("⇄", now_playing.shuffling),
+            crate::platform::SpotifyControl::ToggleRepeat => ("⟳", now_playing.repeating),
+            _ => continue,
+        };
+        let style = if active {
+            Style::default().fg(p.accent).add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(p.overlay0)
+        };
+        frame.render_widget(Paragraph::new(Span::styled(glyph, style)), rect);
+    }
+}
+
+/// Window `text` to `cols` columns, scrolling by `offset` with a wraparound
+/// gap once it overflows. Char-based; close enough for title text.
+fn marquee_slice(text: &str, cols: usize, offset: usize) -> String {
+    if cols == 0 {
+        return String::new();
+    }
+    let chars: Vec<char> = text.chars().collect();
+    if chars.len() <= cols {
+        return text.to_string();
+    }
+    const GAP: usize = 3;
+    let cycle = chars.len() + GAP;
+    let start = offset % cycle;
+    (0..cols)
+        .map(|i| {
+            let idx = (start + i) % cycle;
+            if idx < chars.len() {
+                chars[idx]
+            } else {
+                ' '
+            }
+        })
+        .collect()
+}
+
+fn format_mmss(secs: f64) -> String {
+    let total = secs.max(0.0) as u64;
+    format!("{}:{:02}", total / 60, total % 60)
 }
 
 fn render_workspace_list(

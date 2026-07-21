@@ -5,7 +5,8 @@ use crossterm::terminal;
 use super::{
     background_update_check_enabled, repeat_key_identity, App, Mode, ANIMATION_INTERVAL,
     AUTO_UPDATE_CHECK_INTERVAL, GIT_REMOTE_STATUS_REFRESH_INTERVAL, MIN_RENDER_INTERVAL,
-    RESIZE_POLL_INTERVAL, SELECTION_AUTOSCROLL_INTERVAL,
+    RESIZE_POLL_INTERVAL, SELECTION_AUTOSCROLL_INTERVAL, SPOTIFY_REFRESH_INTERVAL,
+    SPOTIFY_UI_TICK_INTERVAL,
 };
 use crate::events::AppEvent;
 use crate::workspace::{GitStatusCacheEntry, Workspace, WorkspaceGitStatus};
@@ -266,6 +267,8 @@ impl App {
         changed |= self.clear_due_selection_highlight(now);
 
         self.start_git_status_refresh_if_due(now);
+        self.start_spotify_refresh_if_due(now);
+        changed |= self.tick_spotify_ui_if_due(now);
 
         if self
             .next_auto_update_check
@@ -521,6 +524,87 @@ impl App {
             .then_some(self.last_git_remote_status_refresh + GIT_REMOTE_STATUS_REFRESH_INTERVAL)
     }
 
+    pub(crate) fn start_spotify_refresh_if_due(&mut self, now: Instant) {
+        let Some(deadline) = self.spotify_refresh_deadline() else {
+            return;
+        };
+
+        if now < deadline {
+            return;
+        }
+
+        self.spotify_refresh_in_flight = true;
+        let event_tx = self.event_tx.clone();
+        std::thread::spawn(move || {
+            let now_playing = crate::platform::spotify_now_playing();
+            let _ = event_tx.blocking_send(AppEvent::SpotifyStatusRefreshed { now_playing });
+        });
+    }
+
+    pub(crate) fn spotify_refresh_deadline(&self) -> Option<Instant> {
+        // demo hack: config gate bypassed, poll always runs
+        (!self.spotify_refresh_in_flight)
+            .then_some(self.last_spotify_refresh + SPOTIFY_REFRESH_INTERVAL)
+    }
+
+    /// Redraw heartbeat for the Spotify widget: steps the title marquee and
+    /// keeps the wall-clock-derived progress display moving between polls.
+    /// Armed only while now-playing data exists.
+    pub(crate) fn tick_spotify_ui_if_due(&mut self, now: Instant) -> bool {
+        if self.state.spotify_now_playing.is_none() {
+            self.next_spotify_ui_tick = None;
+            return false;
+        }
+        match self.next_spotify_ui_tick {
+            None => {
+                self.next_spotify_ui_tick = Some(now + SPOTIFY_UI_TICK_INTERVAL);
+                false
+            }
+            Some(deadline) if now >= deadline => {
+                self.state.spotify_marquee_offset =
+                    self.state.spotify_marquee_offset.wrapping_add(1);
+                self.next_spotify_ui_tick = Some(now + SPOTIFY_UI_TICK_INTERVAL);
+                true
+            }
+            Some(_) => false,
+        }
+    }
+
+    pub(crate) fn run_spotify_control(&mut self, control: crate::platform::SpotifyControl) {
+        use crate::platform::SpotifyControl;
+
+        if let Some(now_playing) = self.state.spotify_now_playing.as_mut() {
+            match control {
+                SpotifyControl::PlayPause => {
+                    now_playing.playing = !now_playing.playing;
+                }
+                SpotifyControl::SeekTo(secs) => {
+                    now_playing.position_secs = secs.clamp(0.0, now_playing.duration_secs.max(0.0));
+                }
+                SpotifyControl::ToggleShuffle => {
+                    now_playing.shuffling = !now_playing.shuffling;
+                }
+                SpotifyControl::ToggleRepeat => {
+                    now_playing.repeating = !now_playing.repeating;
+                }
+                SpotifyControl::NextTrack
+                | SpotifyControl::PreviousTrack
+                | SpotifyControl::ActivateApp => {}
+            }
+            self.state.spotify_polled_at = Some(Instant::now());
+        }
+
+        self.spotify_refresh_in_flight = true;
+        let event_tx = self.event_tx.clone();
+        std::thread::spawn(move || {
+            crate::platform::spotify_control(control);
+            // Give Spotify a beat to apply the command before re-reading.
+            std::thread::sleep(std::time::Duration::from_millis(250));
+            let now_playing = crate::platform::spotify_now_playing();
+            let _ = event_tx.blocking_send(AppEvent::SpotifyStatusRefreshed { now_playing });
+        });
+    }
+
     pub(crate) fn next_loop_deadline(&self, now: Instant, needs_render: bool) -> Option<Instant> {
         self.next_loop_deadline_with_resize_poll(now, needs_render, true, true)
     }
@@ -559,6 +643,10 @@ impl App {
             include_git_refresh
                 .then(|| self.git_refresh_deadline())
                 .flatten(),
+            include_git_refresh
+                .then(|| self.spotify_refresh_deadline())
+                .flatten(),
+            self.next_spotify_ui_tick,
             self.next_auto_update_check,
             self.next_agent_manifest_update_check,
             self.agent_metadata_deadline,
@@ -787,6 +875,7 @@ mod tests {
         app.state.workspaces.push(Workspace::test_new("test"));
         let now = Instant::now();
         app.last_git_remote_status_refresh = now - super::super::GIT_REMOTE_STATUS_REFRESH_INTERVAL;
+        app.last_spotify_refresh = now - super::super::SPOTIFY_REFRESH_INTERVAL;
 
         assert_eq!(
             app.next_headless_loop_deadline_with_git_refresh(now, false, false),

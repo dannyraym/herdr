@@ -57,6 +57,7 @@ pub(super) enum MouseAction {
         menu: ContextMenuState,
         idx: usize,
     },
+    Spotify(crate::platform::SpotifyControl),
 }
 
 enum MobileMouseResult {
@@ -166,6 +167,14 @@ impl AppState {
                 }
             }
             return None;
+        }
+
+        if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left))
+            && matches!(self.mode, Mode::Terminal | Mode::Navigate | Mode::Resize)
+        {
+            if let Some(control) = self.spotify_control_at(mouse.column, mouse.row) {
+                return Some(MouseAction::Spotify(control));
+            }
         }
 
         if self.mode == Mode::KeybindHelp {

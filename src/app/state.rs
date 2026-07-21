@@ -1384,6 +1384,13 @@ pub struct AppState {
     /// Ratio of sidebar height allocated to the workspaces section.
     pub sidebar_section_split: f32,
     pub agent_panel_sort: AgentPanelSort,
+    /// Show the Spotify now-playing widget at the bottom of the sidebar.
+    pub spotify_enabled: bool,
+    pub spotify_now_playing: Option<crate::platform::SpotifyNowPlaying>,
+    /// When the current now-playing snapshot was received; drives the
+    /// smoothly advancing progress display between polls.
+    pub spotify_polled_at: Option<std::time::Instant>,
+    pub spotify_marquee_offset: usize,
     pub next_agent_state_change_seq: u64,
     /// Capture mouse input for Herdr's own mouse UI. When false, Herdr only
     /// captures mouse while the focused pane app requests mouse reporting.
@@ -1647,6 +1654,190 @@ pub fn key_matches(
 }
 
 // ---------------------------------------------------------------------------
+/// Height of the Spotify now-playing widget pinned to the sidebar bottom.
+pub(crate) const SPOTIFY_WIDGET_HEIGHT: u16 = 3;
+
+impl AppState {
+    pub(crate) fn spotify_widget_visible_in(&self, sidebar: Rect) -> bool {
+        // demo hack: config gate bypassed, widget is always-on when data exists
+        self.spotify_now_playing.is_some()
+            && !self.sidebar_collapsed
+            && sidebar.width >= 14
+            && sidebar.height >= 11
+    }
+
+    /// Sidebar area available to the workspace/agent sections after the
+    /// Spotify widget strip is reserved. Render and mouse hit-testing must
+    /// both derive section geometry from this so they cannot drift.
+    pub(crate) fn sidebar_sections_area_from(&self, sidebar: Rect) -> Rect {
+        if !self.spotify_widget_visible_in(sidebar) {
+            return sidebar;
+        }
+        Rect::new(
+            sidebar.x,
+            sidebar.y,
+            sidebar.width,
+            sidebar.height.saturating_sub(SPOTIFY_WIDGET_HEIGHT),
+        )
+    }
+
+    pub(crate) fn sidebar_sections_area(&self) -> Rect {
+        self.sidebar_sections_area_from(self.view.sidebar_rect)
+    }
+
+    pub(crate) fn spotify_widget_rect(&self) -> Rect {
+        let sidebar = self.view.sidebar_rect;
+        if !self.spotify_widget_visible_in(sidebar) {
+            return Rect::default();
+        }
+        Rect::new(
+            sidebar.x,
+            sidebar.y + sidebar.height.saturating_sub(SPOTIFY_WIDGET_HEIGHT),
+            sidebar.width.saturating_sub(1),
+            SPOTIFY_WIDGET_HEIGHT,
+        )
+    }
+
+    pub(crate) fn spotify_button_rects(&self) -> [(crate::platform::SpotifyControl, Rect); 3] {
+        use crate::platform::SpotifyControl;
+
+        let widget = self.spotify_widget_rect();
+        if widget == Rect::default() {
+            return [
+                (SpotifyControl::PreviousTrack, Rect::default()),
+                (SpotifyControl::PlayPause, Rect::default()),
+                (SpotifyControl::NextTrack, Rect::default()),
+            ];
+        }
+        let row = widget.y + 2;
+        [
+            (
+                SpotifyControl::PreviousTrack,
+                Rect::new(widget.x + 1, row, 3, 1),
+            ),
+            (
+                SpotifyControl::PlayPause,
+                Rect::new(widget.x + 5, row, 3, 1),
+            ),
+            (
+                SpotifyControl::NextTrack,
+                Rect::new(widget.x + 9, row, 3, 1),
+            ),
+        ]
+    }
+
+    /// Shuffle/repeat toggles, right-aligned on the controls row. Zero rects
+    /// when the widget is hidden or too narrow to fit them.
+    pub(crate) fn spotify_toggle_rects(&self) -> [(crate::platform::SpotifyControl, Rect); 2] {
+        use crate::platform::SpotifyControl;
+
+        let widget = self.spotify_widget_rect();
+        if widget == Rect::default() || widget.width < 20 {
+            return [
+                (SpotifyControl::ToggleShuffle, Rect::default()),
+                (SpotifyControl::ToggleRepeat, Rect::default()),
+            ];
+        }
+        let row = widget.y + 2;
+        [
+            (
+                SpotifyControl::ToggleShuffle,
+                Rect::new(widget.x + widget.width.saturating_sub(8), row, 2, 1),
+            ),
+            (
+                SpotifyControl::ToggleRepeat,
+                Rect::new(widget.x + widget.width.saturating_sub(5), row, 2, 1),
+            ),
+        ]
+    }
+
+    pub(crate) fn spotify_title_rect(&self) -> Rect {
+        let widget = self.spotify_widget_rect();
+        if widget == Rect::default() {
+            return Rect::default();
+        }
+        Rect::new(widget.x, widget.y, widget.width, 1)
+    }
+
+    /// The seekable progress-bar strip on the widget's middle row, excluding
+    /// the right-aligned time readout when the widget is wide enough for one.
+    pub(crate) fn spotify_progress_rect(&self) -> Rect {
+        let widget = self.spotify_widget_rect();
+        if widget == Rect::default() {
+            return Rect::default();
+        }
+        let time_cols = if widget.width >= 24 { 12 } else { 0 };
+        Rect::new(
+            widget.x + 1,
+            widget.y + 1,
+            widget.width.saturating_sub(time_cols + 2),
+            1,
+        )
+    }
+
+    /// Playback position for display: the last polled position, advanced by
+    /// wall-clock time while playing so the bar moves between polls.
+    pub(crate) fn spotify_display_position_secs(&self) -> f64 {
+        let Some(now_playing) = self.spotify_now_playing.as_ref() else {
+            return 0.0;
+        };
+        let mut position = now_playing.position_secs;
+        if now_playing.playing {
+            if let Some(polled_at) = self.spotify_polled_at {
+                position += polled_at.elapsed().as_secs_f64();
+            }
+        }
+        if now_playing.duration_secs > 0.0 {
+            position.min(now_playing.duration_secs)
+        } else {
+            position
+        }
+    }
+
+    pub(crate) fn spotify_control_at(
+        &self,
+        col: u16,
+        row: u16,
+    ) -> Option<crate::platform::SpotifyControl> {
+        let hit = |rect: Rect| {
+            rect.width > 0
+                && col >= rect.x
+                && col < rect.x + rect.width
+                && row >= rect.y
+                && row < rect.y + rect.height
+        };
+
+        if let Some((control, _)) = self
+            .spotify_button_rects()
+            .into_iter()
+            .chain(self.spotify_toggle_rects())
+            .find(|(_, rect)| hit(*rect))
+        {
+            return Some(control);
+        }
+
+        let bar = self.spotify_progress_rect();
+        if hit(bar) {
+            let duration = self
+                .spotify_now_playing
+                .as_ref()
+                .map(|now_playing| now_playing.duration_secs)
+                .unwrap_or(0.0);
+            if duration > 0.0 {
+                let fraction = f64::from(col.saturating_sub(bar.x)) / f64::from(bar.width.max(1));
+                return Some(crate::platform::SpotifyControl::SeekTo(fraction * duration));
+            }
+            return None;
+        }
+
+        if hit(self.spotify_title_rect()) {
+            return Some(crate::platform::SpotifyControl::ActivateApp);
+        }
+
+        None
+    }
+}
+
 // Test helpers
 // ---------------------------------------------------------------------------
 
@@ -1744,6 +1935,10 @@ impl AppState {
             sidebar_collapsed_mode: crate::config::SidebarCollapsedModeConfig::Compact,
             sidebar_section_split: 0.5,
             agent_panel_sort: AgentPanelSort::Spaces,
+            spotify_enabled: false,
+            spotify_now_playing: None,
+            spotify_polled_at: None,
+            spotify_marquee_offset: 0,
             next_agent_state_change_seq: 0,
             mouse_capture: true,
             right_click_passthrough_modifiers: None,
@@ -2147,6 +2342,118 @@ impl AppState {
 mod tests {
     use super::*;
     use crossterm::event::KeyEvent;
+
+    fn spotify_test_state() -> AppState {
+        let mut state = AppState::test_new();
+        state.view.sidebar_rect = Rect::new(0, 0, 30, 40);
+        state.spotify_enabled = true;
+        state.spotify_now_playing = Some(crate::platform::SpotifyNowPlaying {
+            track: "Track".to_string(),
+            artist: "Artist".to_string(),
+            playing: true,
+            position_secs: 50.0,
+            duration_secs: 200.0,
+            shuffling: false,
+            repeating: true,
+        });
+        state
+    }
+
+    #[test]
+    fn spotify_widget_reserves_sidebar_bottom_strip() {
+        let state = spotify_test_state();
+
+        let sections = state.sidebar_sections_area();
+        assert_eq!(sections.height, 40 - SPOTIFY_WIDGET_HEIGHT);
+
+        let widget = state.spotify_widget_rect();
+        assert_eq!(widget.y, 40 - SPOTIFY_WIDGET_HEIGHT);
+        assert_eq!(widget.height, SPOTIFY_WIDGET_HEIGHT);
+
+        for (_, rect) in state.spotify_button_rects() {
+            assert_eq!(rect.y, widget.y + 2);
+            assert!(rect.x + rect.width <= widget.x + widget.width);
+        }
+        for (_, rect) in state.spotify_toggle_rects() {
+            assert_eq!(rect.y, widget.y + 2);
+            assert!(rect.x + rect.width <= widget.x + widget.width);
+        }
+        let bar = state.spotify_progress_rect();
+        assert_eq!(bar.y, widget.y + 1);
+        assert!(bar.width > 0);
+        assert!(bar.x + bar.width < widget.x + widget.width);
+    }
+
+    #[test]
+    fn spotify_widget_hidden_without_data_disabled_or_collapsed() {
+        let mut state = spotify_test_state();
+        state.spotify_now_playing = None;
+        assert_eq!(state.spotify_widget_rect(), Rect::default());
+        assert_eq!(state.sidebar_sections_area(), state.view.sidebar_rect);
+
+        let mut state = spotify_test_state();
+        state.sidebar_collapsed = true;
+        assert_eq!(state.spotify_widget_rect(), Rect::default());
+    }
+
+    #[test]
+    fn spotify_widget_hidden_in_tiny_sidebar() {
+        let mut state = spotify_test_state();
+        state.view.sidebar_rect = Rect::new(0, 0, 30, 9);
+        assert_eq!(state.spotify_widget_rect(), Rect::default());
+        assert_eq!(state.sidebar_sections_area(), state.view.sidebar_rect);
+
+        state.view.sidebar_rect = Rect::new(0, 0, 13, 40);
+        assert_eq!(state.spotify_widget_rect(), Rect::default());
+    }
+
+    #[test]
+    fn spotify_control_at_maps_buttons() {
+        let state = spotify_test_state();
+        let rects = state.spotify_button_rects();
+
+        assert_eq!(
+            state.spotify_control_at(rects[0].1.x, rects[0].1.y),
+            Some(crate::platform::SpotifyControl::PreviousTrack)
+        );
+        assert_eq!(
+            state.spotify_control_at(rects[1].1.x + 1, rects[1].1.y),
+            Some(crate::platform::SpotifyControl::PlayPause)
+        );
+        assert_eq!(
+            state.spotify_control_at(rects[2].1.x + 2, rects[2].1.y),
+            Some(crate::platform::SpotifyControl::NextTrack)
+        );
+        assert_eq!(state.spotify_control_at(0, 0), None);
+
+        let bar = state.spotify_progress_rect();
+        assert_eq!(
+            state.spotify_control_at(bar.x, bar.y),
+            Some(crate::platform::SpotifyControl::SeekTo(0.0))
+        );
+        match state.spotify_control_at(bar.x + bar.width - 1, bar.y) {
+            Some(crate::platform::SpotifyControl::SeekTo(secs)) => {
+                assert!(secs > 150.0 && secs < 200.0);
+            }
+            other => panic!("expected seek near track end, got {other:?}"),
+        }
+
+        let title = state.spotify_title_rect();
+        assert_eq!(
+            state.spotify_control_at(title.x + 3, title.y),
+            Some(crate::platform::SpotifyControl::ActivateApp)
+        );
+
+        let toggles = state.spotify_toggle_rects();
+        assert_eq!(
+            state.spotify_control_at(toggles[0].1.x, toggles[0].1.y),
+            Some(crate::platform::SpotifyControl::ToggleShuffle)
+        );
+        assert_eq!(
+            state.spotify_control_at(toggles[1].1.x + 1, toggles[1].1.y),
+            Some(crate::platform::SpotifyControl::ToggleRepeat)
+        );
+    }
 
     #[test]
     fn agent_terminal_keeps_final_child_cursor_exposed() {

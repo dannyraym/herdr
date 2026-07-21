@@ -325,6 +325,7 @@ impl App {
                     MouseAction::ContextMenu { menu, idx } => {
                         self.apply_context_menu_action_via_api(menu, idx)
                     }
+                    MouseAction::Spotify(control) => self.run_spotify_control(control),
                 }
             }
         }

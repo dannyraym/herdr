@@ -6,7 +6,7 @@ use super::ScrollbarClickTarget;
 
 impl AppState {
     pub(super) fn workspace_list_rect(&self) -> Rect {
-        let sidebar = self.view.sidebar_rect;
+        let sidebar = self.sidebar_sections_area();
         if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
             return Rect::default();
         }
@@ -14,7 +14,7 @@ impl AppState {
     }
 
     pub(super) fn agent_panel_rect(&self) -> Rect {
-        let sidebar = self.view.sidebar_rect;
+        let sidebar = self.sidebar_sections_area();
         if self.sidebar_collapsed || sidebar.width <= 1 || sidebar.height == 0 {
             return Rect::default();
         }
@@ -277,7 +277,7 @@ impl AppState {
             return false;
         }
         let rect = crate::ui::sidebar_section_divider_rect(
-            self.view.sidebar_rect,
+            self.sidebar_sections_area(),
             self.sidebar_section_split,
         );
         rect.width > 0
@@ -288,7 +288,7 @@ impl AppState {
     }
 
     pub(super) fn set_sidebar_section_split(&mut self, row: u16) {
-        let sidebar = self.view.sidebar_rect;
+        let sidebar = self.sidebar_sections_area();
         let content_height = sidebar.height;
         if content_height < 6 {
             return;
@@ -306,7 +306,7 @@ impl AppState {
         }
 
         let cards = if self.view.workspace_card_areas.is_empty() {
-            crate::ui::compute_workspace_card_areas(self, self.view.sidebar_rect)
+            crate::ui::compute_workspace_card_areas(self, self.sidebar_sections_area())
         } else {
             self.view.workspace_card_areas.clone()
         };
@@ -386,7 +386,7 @@ impl AppState {
         }
 
         let cards = if self.view.workspace_card_areas.is_empty() {
-            crate::ui::compute_workspace_card_areas(self, self.view.sidebar_rect)
+            crate::ui::compute_workspace_card_areas(self, self.sidebar_sections_area())
         } else {
             self.view.workspace_card_areas.clone()
         };
@@ -438,7 +438,7 @@ impl AppState {
         }
 
         let (_, detail_area) = crate::ui::expanded_sidebar_sections(
-            self.view.sidebar_rect,
+            self.sidebar_sections_area(),
             self.sidebar_section_split,
         );
         let rect = crate::ui::agent_panel_toggle_rect(detail_area, self.agent_panel_sort);

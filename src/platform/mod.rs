@@ -25,6 +25,30 @@ pub enum Signal {
     Kill,
 }
 
+/// Snapshot of the local Spotify desktop app's playback state.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SpotifyNowPlaying {
+    pub track: String,
+    pub artist: String,
+    pub playing: bool,
+    /// Playback position in seconds at poll time.
+    pub position_secs: f64,
+    pub duration_secs: f64,
+    pub shuffling: bool,
+    pub repeating: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SpotifyControl {
+    PlayPause,
+    NextTrack,
+    PreviousTrack,
+    SeekTo(f64),
+    ToggleShuffle,
+    ToggleRepeat,
+    ActivateApp,
+}
+
 pub(crate) fn detached_custom_command_process(command: &str) -> std::process::Command {
     detached_custom_command_process_platform(command)
 }
@@ -164,6 +188,14 @@ pub(crate) fn switch_to_ascii_input_source() -> Option<InputSourceRestore> {
 
 #[cfg(not(target_os = "macos"))]
 pub(crate) fn pump_input_source_runloop() {}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn spotify_now_playing() -> Option<SpotifyNowPlaying> {
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn spotify_control(_control: SpotifyControl) {}
 
 /// Switches the host keyboard input source while prefix mode is active.
 ///

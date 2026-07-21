@@ -146,6 +146,10 @@ pub enum AppEvent {
         results: Vec<WorkspaceGitStatus>,
         cache_updates: Vec<(std::path::PathBuf, GitStatusCacheEntry)>,
     },
+    /// Background Spotify now-playing poll or control command completed.
+    SpotifyStatusRefreshed {
+        now_playing: Option<crate::platform::SpotifyNowPlaying>,
+    },
     /// A plugin action or event command finished.
     PluginCommandFinished {
         log_id: String,

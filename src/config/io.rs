@@ -11,6 +11,7 @@ const KNOWN_TOP_LEVEL_CONFIG_KEYS: &[&str] = &[
     "onboarding",
     "remote",
     "session",
+    "spotify",
     "terminal",
     "theme",
     "ui",
@@ -258,6 +259,14 @@ fn load_live_config_from_str(content: &str) -> Result<LoadedConfig, Vec<String>>
         &mut diagnostics,
         &mut invalid_sections,
         |section| config.ui = section,
+    );
+    load_live_section(
+        table,
+        "spotify",
+        "spotify config",
+        &mut diagnostics,
+        &mut invalid_sections,
+        |section| config.spotify = section,
     );
     load_live_section(
         table,
@@ -549,6 +558,14 @@ fn upsert_section_raw(content: &str, section: &str, key: &str, value: &str) -> S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spotify_section_parses_enabled_flag() {
+        let loaded = load_live_config_from_str("[spotify]\nenabled = true\n").expect("config");
+        assert!(loaded.config.spotify.enabled);
+        assert!(loaded.diagnostics.is_empty());
+        assert!(!Config::default().spotify.enabled);
+    }
 
     #[test]
     fn upsert_top_level_bool_replaces_existing_value() {

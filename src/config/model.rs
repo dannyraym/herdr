@@ -294,6 +294,7 @@ pub struct Config {
     pub update: UpdateConfig,
     pub keys: KeysConfig,
     pub ui: UiConfig,
+    pub spotify: SpotifyConfig,
     pub worktrees: WorktreesConfig,
     pub advanced: AdvancedConfig,
     pub experimental: ExperimentalConfig,
@@ -776,6 +777,14 @@ pub struct IndexedKeysConfig {
 pub struct WorktreesConfig {
     /// Root directory under which Herdr creates <repo>/<branch-slug> checkouts.
     pub directory: String,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct SpotifyConfig {
+    /// Show a Spotify now-playing widget with playback controls at the
+    /// bottom of the sidebar (macOS, controls the desktop app). Default: false.
+    pub enabled: bool,
 }
 
 #[derive(Debug, Deserialize)]

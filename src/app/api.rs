@@ -83,6 +83,27 @@ impl App {
             return;
         }
 
+        if let AppEvent::SpotifyStatusRefreshed { now_playing } = ev {
+            self.spotify_refresh_in_flight = false;
+            self.last_spotify_refresh = Instant::now();
+            if self.state.spotify_now_playing != now_playing {
+                let track_changed = match (&self.state.spotify_now_playing, &now_playing) {
+                    (Some(previous), Some(next)) => {
+                        previous.track != next.track || previous.artist != next.artist
+                    }
+                    _ => true,
+                };
+                if track_changed {
+                    self.state.spotify_marquee_offset = 0;
+                }
+                self.state.spotify_now_playing = now_playing;
+                self.state.spotify_polled_at = Some(Instant::now());
+                self.render_dirty.store(true, Ordering::Release);
+                self.render_notify.notify_one();
+            }
+            return;
+        }
+
         if let AppEvent::GitStatusRefreshed {
             results,
             cache_updates,

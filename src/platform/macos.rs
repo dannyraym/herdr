@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 
 use super::{
     read_limited_reader, ClipboardCommand, ClipboardImage, ForegroundJob, ForegroundProcess,
-    LimitedRead, Signal,
+    LimitedRead, Signal, SpotifyControl, SpotifyNowPlaying,
 };
 
 const PROC_PGRP_ONLY: u32 = 2;
@@ -624,6 +624,90 @@ fn unique_timestamp_nanos() -> u128 {
         .unwrap_or(0)
 }
 
+/// Read the Spotify desktop app's playback state via AppleScript.
+///
+/// The script checks `is running` first so polling never launches Spotify;
+/// a bare `tell application "Spotify"` would start it.
+pub(crate) fn spotify_now_playing() -> Option<SpotifyNowPlaying> {
+    let output = Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg("if application \"Spotify\" is not running then return \"gone\"")
+        .arg("-e")
+        .arg("tell application \"Spotify\"")
+        .arg("-e")
+        .arg("set stateText to player state as text")
+        .arg("-e")
+        .arg("if stateText is \"stopped\" then return \"stopped\"")
+        .arg("-e")
+        .arg("return stateText & linefeed & (name of current track) & linefeed & (artist of current track) & linefeed & (player position as text) & linefeed & ((duration of current track) as text) & linefeed & (shuffling as text) & linefeed & (repeating as text)")
+        .arg("-e")
+        .arg("end tell")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+    parse_spotify_now_playing(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_spotify_now_playing(raw: &str) -> Option<SpotifyNowPlaying> {
+    let mut lines = raw.lines();
+    let playing = match lines.next()?.trim() {
+        "playing" => true,
+        "paused" => false,
+        _ => return None,
+    };
+    let track = lines.next()?.trim().to_string();
+    if track.is_empty() {
+        return None;
+    }
+    let artist = lines.next().unwrap_or_default().trim().to_string();
+    let position_secs = parse_applescript_number(lines.next().unwrap_or_default());
+    // Spotify reports `duration of current track` in milliseconds.
+    let duration_secs = parse_applescript_number(lines.next().unwrap_or_default()) / 1000.0;
+    let shuffling = lines.next().is_some_and(|line| line.trim() == "true");
+    let repeating = lines.next().is_some_and(|line| line.trim() == "true");
+    Some(SpotifyNowPlaying {
+        track,
+        artist,
+        playing,
+        position_secs,
+        duration_secs,
+        shuffling,
+        repeating,
+    })
+}
+
+// `player position as text` uses the system locale's decimal separator.
+fn parse_applescript_number(raw: &str) -> f64 {
+    raw.trim().replace(',', ".").parse().unwrap_or(0.0)
+}
+
+pub(crate) fn spotify_control(control: SpotifyControl) {
+    let verb = match control {
+        SpotifyControl::PlayPause => "playpause".to_string(),
+        SpotifyControl::NextTrack => "next track".to_string(),
+        SpotifyControl::PreviousTrack => "previous track".to_string(),
+        SpotifyControl::SeekTo(secs) => format!("set player position to {:.1}", secs.max(0.0)),
+        SpotifyControl::ToggleShuffle => "set shuffling to not shuffling".to_string(),
+        SpotifyControl::ToggleRepeat => "set repeating to not repeating".to_string(),
+        SpotifyControl::ActivateApp => "activate".to_string(),
+    };
+    let script = format!(
+        "if application \"Spotify\" is running then tell application \"Spotify\" to {verb}"
+    );
+    let _ = Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(script)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
 /// Show a native macOS notification.
 ///
 /// Prefer `terminal-notifier` when it is installed because it can activate the
@@ -1007,6 +1091,55 @@ pub fn process_exists(pid: u32) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spotify_parse_reads_playing_track() {
+        assert_eq!(
+            parse_spotify_now_playing(
+                "playing\nKarma Police\nRadiohead\n123.456\n261000\ntrue\nfalse\n"
+            ),
+            Some(SpotifyNowPlaying {
+                track: "Karma Police".to_string(),
+                artist: "Radiohead".to_string(),
+                playing: true,
+                position_secs: 123.456,
+                duration_secs: 261.0,
+                shuffling: true,
+                repeating: false,
+            })
+        );
+    }
+
+    #[test]
+    fn spotify_parse_handles_comma_decimal_locale_and_missing_fields() {
+        let parsed = parse_spotify_now_playing("playing\nTrack\nArtist\n42,5\n180000\n")
+            .expect("now playing");
+        assert_eq!(parsed.position_secs, 42.5);
+        assert_eq!(parsed.duration_secs, 180.0);
+        assert!(!parsed.shuffling);
+        assert!(!parsed.repeating);
+    }
+
+    #[test]
+    fn spotify_parse_reads_paused_state() {
+        let parsed = parse_spotify_now_playing("paused\nTrack\nArtist\n").expect("now playing");
+        assert!(!parsed.playing);
+    }
+
+    #[test]
+    fn spotify_parse_accepts_missing_artist() {
+        let parsed = parse_spotify_now_playing("playing\nSome Mix\n").expect("now playing");
+        assert_eq!(parsed.artist, "");
+    }
+
+    #[test]
+    fn spotify_parse_rejects_not_running_stopped_and_garbage() {
+        assert_eq!(parse_spotify_now_playing("gone\n"), None);
+        assert_eq!(parse_spotify_now_playing("stopped\n"), None);
+        assert_eq!(parse_spotify_now_playing(""), None);
+        assert_eq!(parse_spotify_now_playing("execution error: timeout"), None);
+        assert_eq!(parse_spotify_now_playing("playing\n\nArtist\n"), None);
+    }
 
     #[test]
     fn nofile_target_raises_low_soft_limit_to_cap_when_hard_is_unlimited() {

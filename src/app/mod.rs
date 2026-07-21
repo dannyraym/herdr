@@ -35,6 +35,8 @@ pub(crate) const HEADLESS_ANIMATION_TICK_STEP: u32 = 8;
 pub(crate) const SELECTION_AUTOSCROLL_INTERVAL: Duration = Duration::from_millis(30);
 const RESIZE_POLL_INTERVAL: Duration = Duration::from_millis(100);
 const GIT_REMOTE_STATUS_REFRESH_INTERVAL: Duration = Duration::from_millis(1500);
+const SPOTIFY_REFRESH_INTERVAL: Duration = Duration::from_secs(2);
+const SPOTIFY_UI_TICK_INTERVAL: Duration = Duration::from_millis(500);
 const AUTO_UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
 const PENDING_AGENT_RESUME_THEME_WAIT: Duration = Duration::from_millis(750);
 const SESSION_SAVE_DEBOUNCE: Duration = Duration::from_secs(5);
@@ -109,6 +111,9 @@ pub struct App {
     pub(crate) last_git_remote_status_refresh: Instant,
     pub(crate) git_refresh_in_flight: bool,
     pub(crate) git_refresh_due_after_in_flight: bool,
+    pub(crate) last_spotify_refresh: Instant,
+    pub(crate) spotify_refresh_in_flight: bool,
+    pub(crate) next_spotify_ui_tick: Option<Instant>,
     pub(crate) git_status_cache: HashMap<std::path::PathBuf, crate::workspace::GitStatusCacheEntry>,
     pub(crate) pending_api_worktree_creates: HashMap<std::path::PathBuf, u64>,
     pub(crate) pending_api_worktree_removes: HashMap<String, u64>,
@@ -597,6 +602,10 @@ impl App {
             sidebar_collapsed_mode: config.ui.sidebar_collapsed_mode,
             sidebar_section_split,
             agent_panel_sort,
+            spotify_enabled: config.spotify.enabled,
+            spotify_now_playing: None,
+            spotify_polled_at: None,
+            spotify_marquee_offset: 0,
             next_agent_state_change_seq: 0,
             mouse_capture: config.ui.mouse_capture,
             right_click_passthrough_modifiers: config.ui.right_click_passthrough_modifiers(),
@@ -700,6 +709,9 @@ impl App {
             last_git_remote_status_refresh: Instant::now() - GIT_REMOTE_STATUS_REFRESH_INTERVAL,
             git_refresh_in_flight: false,
             git_refresh_due_after_in_flight: false,
+            last_spotify_refresh: Instant::now() - SPOTIFY_REFRESH_INTERVAL,
+            spotify_refresh_in_flight: false,
+            next_spotify_ui_tick: None,
             git_status_cache: HashMap::new(),
             pending_api_worktree_creates: HashMap::new(),
             pending_api_worktree_removes: HashMap::new(),
@@ -1377,6 +1389,10 @@ impl App {
                     config.ui.right_click_passthrough_modifiers();
                 self.state.confirm_close = config.ui.confirm_close;
                 self.state.prompt_new_tab_name = config.ui.prompt_new_tab_name;
+                self.state.spotify_enabled = config.spotify.enabled;
+                if !self.state.spotify_enabled {
+                    self.state.spotify_now_playing = None;
+                }
                 self.state.pane_borders = config.ui.pane_borders;
                 self.state.pane_gaps = config.ui.pane_gaps;
                 self.state.show_agent_labels_on_pane_borders =
@@ -4080,6 +4096,7 @@ mod tests {
     fn next_loop_deadline_includes_session_save_deadline() {
         let mut app = test_app();
         let now = Instant::now();
+        app.spotify_refresh_in_flight = true;
         app.session_save_deadline = Some(now + Duration::from_secs(2));
         app.next_resize_poll = now + Duration::from_secs(5);
         app.next_auto_update_check = Some(now + Duration::from_secs(6));
@@ -4094,6 +4111,7 @@ mod tests {
     fn headless_next_loop_deadline_ignores_resize_poll() {
         let mut app = test_app();
         let now = Instant::now();
+        app.spotify_refresh_in_flight = true;
         app.next_resize_poll = now + Duration::from_millis(100);
         app.session_save_deadline = Some(now + Duration::from_secs(2));
         app.next_auto_update_check = Some(now + Duration::from_secs(6));
@@ -4114,6 +4132,7 @@ mod tests {
         app.next_animation_tick = None;
         app.next_auto_update_check = None;
         app.session_save_deadline = None;
+        app.spotify_refresh_in_flight = true;
         app.state.workspaces.clear();
 
         assert_eq!(
@@ -4136,6 +4155,7 @@ mod tests {
     fn next_loop_deadline_includes_selection_autoscroll_deadline() {
         let mut app = test_app();
         let now = Instant::now();
+        app.spotify_refresh_in_flight = true;
         app.next_resize_poll = now + Duration::from_millis(300);
         app.selection_autoscroll_deadline = Some(now + Duration::from_millis(5));
         app.next_animation_tick = Some(now + Duration::from_millis(100));

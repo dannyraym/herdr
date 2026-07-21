@@ -232,9 +232,12 @@ fn compute_view_internal(
         .map(|ws| desktop_tab_bar_and_terminal_area(app, ws, main_area))
         .unwrap_or((Rect::default(), main_area));
 
+    let sidebar_sections_area = app.sidebar_sections_area_from(sidebar_area);
     if !app.sidebar_collapsed {
-        app.workspace_scroll = normalized_workspace_scroll(app, sidebar_area, app.workspace_scroll);
-        let (_, detail_area) = expanded_sidebar_sections(sidebar_area, app.sidebar_section_split);
+        app.workspace_scroll =
+            normalized_workspace_scroll(app, sidebar_sections_area, app.workspace_scroll);
+        let (_, detail_area) =
+            expanded_sidebar_sections(sidebar_sections_area, app.sidebar_section_split);
         let max_agent_scroll = agent_panel_scroll_metrics(app, detail_area).max_offset_from_bottom;
         app.agent_panel_scroll = app.agent_panel_scroll.min(max_agent_scroll);
     } else {
@@ -247,7 +250,7 @@ fn compute_view_internal(
     let workspace_card_areas = if app.sidebar_collapsed {
         Vec::new()
     } else {
-        compute_workspace_card_areas(app, sidebar_area)
+        compute_workspace_card_areas(app, sidebar_sections_area)
     };
 
     let tab_bar_view = app
