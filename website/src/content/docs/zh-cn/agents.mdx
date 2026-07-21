@@ -21,6 +21,7 @@ Herdr 为同时运行多个编程智能体而生。每个智能体都待在一�
 | Droid | 屏幕清单 | 会话 |
 | OpenCode | 安装后为生命周期插件;否则为屏幕清单 | 状态与会话 |
 | Kilo Code CLI | 安装后为生命周期插件;否则为屏幕清单 | 状态与会话 |
+| MastraCode | 安装后为生命周期钩子 | 状态与会话 |
 | Claude Code | 屏幕清单 | 会话 |
 | Codex | 屏幕清单 | 会话 |
 | Cursor Agent CLI | 屏幕清单 | 会话 |
@@ -28,6 +29,7 @@ Herdr 为同时运行多个编程智能体而生。每个智能体都待在一�
 | Grok CLI | 屏幕清单 | 无 |
 | Antigravity CLI | 屏幕清单 | 无 |
 | Kiro CLI | 屏幕清单 | 无 |
+| Maki | 屏幕清单 | 无 |
 
 可检测但测试较少: Gemini CLI 和 Cline。不受支持的智能体仍然可以作为普通终端进程正常运行,只是在你添加集成或通过 socket API 上报状态之前,可能得不到丰富的状态。
 
@@ -112,17 +114,22 @@ herdr agent rename reviewer --clear
 
 ## 自定义状态标签
 
-集成可以上报一个视觉状态标签,而不改变语义状态。
+集成只把生命周期状态作为语义状态上报。展示自定义应通过窗格元数据令牌单独添加。
 
 ```bash
 herdr pane report-agent w1:p1 \
   --source custom:indexer \
   --agent docs-bot \
-  --state working \
-  --custom-status indexing
+  --state working
+
+herdr pane report-metadata w1:p1 \
+  --source custom:indexer-display \
+  --token summary=indexing
 ```
 
-`state` 控制等待、通知和汇总。`custom-status` 只是显示文本。
+`state` 控制等待、通知和汇总。`summary` 令牌只影响展示,可在智能体侧边栏行中写成 `$summary`。
+
+智能体侧边栏行也可以选择使用 `terminal_title` 或 `terminal_title_stripped`;两者都不在默认行中。前者显示经过安全规范化的最新 OSC 0/2 终端标题,后者会移除开头一个已识别的活动或旋转指示符字形及其后的空白。这些值由 Herdr 服务器所有,冷重启后不会保留,并且独立于元数据标题和语义智能体状态。因此,如果移除后的文本不变,旋转动画可以改变原始标题而不触发窗格更新。
 
 ## 从 CLI 启动智能体
 

@@ -1,11 +1,11 @@
 ---
 title: インテグレーション
-description: Pi、OMP、Claude Code、Codex、GitHub Copilot CLI、Devin CLI、Droid、Kimi Code CLI、OpenCode、Kilo Code CLI、Hermes Agent、Qoder CLI、Cursor Agent CLI 向けの Herdr インテグレーションをインストールします。
+description: Pi、OMP、Claude Code、Codex、GitHub Copilot CLI、Devin CLI、Droid、Kimi Code CLI、OpenCode、Kilo Code CLI、Hermes Agent、Qoder CLI、Cursor Agent CLI、MastraCode 向けの Herdr インテグレーションをインストールします。
 ---
 
 Herdr は対応エージェントを自動的に検出します。公式インテグレーションは、復元のためのネイティブセッション識別、ライフサイクル状態の報告、またはその両方を追加できます。
 
-Claude Code/Codex/Copilot/Devin 系のフックによるエージェントネイティブのセッション復元、Pi/OMP/Kimi/OpenCode/Kilo/Hermes 系のフックまたはプラグインによる直接のライフサイクル報告、あるいはその両方が欲しいときにインテグレーションを使ってください。状態権威モデルの全体像は[エージェント](/ja/docs/agents/)を参照してください。
+Claude Code/Codex/Copilot/Devin 系のフックによるエージェントネイティブのセッション復元、Pi/OMP/Kimi/OpenCode/Kilo/Hermes/MastraCode 系のフックまたはプラグインによる直接のライフサイクル報告、あるいはその両方が欲しいときにインテグレーションを使ってください。状態権威モデルの全体像は[エージェント](/ja/docs/agents/)を参照してください。
 
 ## インテグレーションをインストールする
 
@@ -23,6 +23,7 @@ herdr integration install kimi
 herdr integration install opencode
 herdr integration install kilo
 herdr integration install hermes
+herdr integration install mastracode
 herdr integration install qodercli
 herdr integration install cursor
 ```
@@ -41,6 +42,7 @@ herdr integration uninstall kimi
 herdr integration uninstall opencode
 herdr integration uninstall kilo
 herdr integration uninstall hermes
+herdr integration uninstall mastracode
 herdr integration uninstall qodercli
 herdr integration uninstall cursor
 ```
@@ -51,14 +53,14 @@ Herdr はインテグレーションを 2 つの異なる方法で使います:
 
 | インテグレーションの種類 | エージェント | 効果 |
 | --- | --- | --- |
-| ライフサイクル権威 | Pi、OMP、Kimi Code CLI、OpenCode、Kilo Code CLI、Hermes Agent | インストールされ、そのペインについて能動的に報告している間は、フックまたはプラグインのイベントが `idle`、`working`、`blocked` を決定します。同じライフサイクル権威に対して、Herdr はスクリーンマニフェストのフォールバックを併用しません。 |
+| ライフサイクル権威 | Pi、OMP、Kimi Code CLI、OpenCode、Kilo Code CLI、Hermes Agent、MastraCode | インストールされ、そのペインについて能動的に報告している間は、フックまたはプラグインのイベントが `idle`、`working`、`blocked` を決定します。同じライフサイクル権威に対して、Herdr はスクリーンマニフェストのフォールバックを併用しません。 |
 | セッション識別 | Claude Code、Codex、GitHub Copilot CLI、Devin CLI、Droid、Qoder CLI、Cursor Agent CLI | インテグレーションは復元用のネイティブセッション参照を報告します。状態は引き続き Herdr のスクリーンマニフェスト検出から得られます。 |
 
 カスタムソケットインテグレーションも、ネイティブのターミナル UI では見えない状態を定義する場合に状態を報告できます。
 
-一部のインテグレーションは、エージェントのネイティブセッション参照を報告します。Herdr は公式のセッション参照を使って、`[session] resume_agents_on_restore = false` で無効化されていない限り、Herdr サーバーの再起動後に Claude Code、Codex、Devin CLI、Droid、Kimi Code CLI、Qoder CLI、Cursor Agent CLI、GitHub Copilot CLI、Pi、OMP、Hermes Agent、OpenCode、Kilo Code CLI のペインを resume します。
+一部のインテグレーションは、エージェントのネイティブセッション参照を報告します。Herdr は公式のセッション参照を使って、`[session] resume_agents_on_restore = false` で無効化されていない限り、Herdr サーバーの再起動後に Claude Code、Codex、Devin CLI、Droid、Kimi Code CLI、Qoder CLI、Cursor Agent CLI、GitHub Copilot CLI、Pi、OMP、Hermes Agent、OpenCode、Kilo Code CLI、MastraCode のペインを resume します。
 
-エージェントネイティブのセッション復元には最新の Herdr インテグレーションが必要です: Pi インテグレーションはバージョン `2`、OMP は `3`、Claude Code は `6`、Codex は `5`、GitHub Copilot CLI は `2`、Devin CLI は `2`、Droid は `2`、Kimi Code CLI は `3`、Qoder CLI は `2`、Cursor Agent CLI は `1`、OpenCode は `5`、Kilo Code CLI は `1`、Hermes Agent は `2` です。インストール済みバージョンは `herdr integration status` で確認してください。
+エージェントネイティブのセッション復元には最新の Herdr インテグレーションが必要です: Pi インテグレーションはバージョン `2`、OMP は `3`、Claude Code は `6`、Codex は `5`、GitHub Copilot CLI は `2`、Devin CLI は `2`、Droid は `2`、Kimi Code CLI は `3`、Qoder CLI は `2`、Cursor Agent CLI は `1`、OpenCode は `5`、Kilo Code CLI は `1`、Hermes Agent は `2`、MastraCode は `1` です。インストール済みバージョンは `herdr integration status` で確認してください。
 
 ## Pi
 
@@ -240,21 +242,32 @@ Herdr はデフォルトで `~/.cursor` を使い、`CURSOR_CONFIG_DIR` が設�
 
 Cursor がセッション開始イベントを発行した後、Herdr は報告されたセッション id を使って `cursor-agent --resume <id>` でペインを resume できます。Herdr がペインを復元するとき、`cursor-agent` コマンドが `PATH` にある必要があります。Herdr は汎用の `agent` コマンドを起動しません。
 
+## MastraCode
+
+MastraCode フックをインストールします:
+
+```bash
+herdr integration install mastracode
+```
+
+このフックは、MastraCode のライフサイクル状態とスレッド識別を Herdr に報告し、権威ある `idle`、`working`、`blocked` 状態とネイティブ復元を提供します。MastraCode にはスクリーンマニフェストのフォールバックはありません。MastraCode が Herdr ペイン内で動いている間、状態はフックから得られます。
+
+Herdr は `~/.mastracode` を使います。インストールは `hooks/herdr-agent-state.sh` を書き込み、`hooks.json` に Herdr のコマンドエントリを追加します。ディレクトリがなければ作成します。アンインストールは一致するフックエントリを削除し、フックスクリプトを削除します。
+
+Herdr は保存された MastraCode スレッドを `mastracode --thread <id>` で resume します。
+
 ## カスタムステータスラベル
 
-インテグレーションは、意味的な状態を変えずに短い表示用ラベルを報告できます。
-
-たとえば、エージェントは意味的には `working` のまま、UI には `indexing` を表示できます。
+インテグレーションは、ライフサイクル状態を意味的な状態としてのみ報告します。たとえば、ライフサイクル報告に表示フィールドを加えず、エージェントを `working` として報告します。
 
 ```bash
 herdr pane report-agent w1:p1 \
   --source custom:docs \
   --agent docs-bot \
-  --state working \
-  --custom-status indexing
+  --state working
 ```
 
-Herdr 管理のインテグレーションと並走するユーザーフックは、`report-agent` ではなくメタデータを使うべきです。メタデータは、インテグレーションの `idle`、`working`、`blocked` やセッション復元の権威を奪わずに表示を変えます。`--agent` は、その権威あるエージェントがアクティブな間だけ報告が適用されるように保護します。`--applies-to-source` は、そのライフサイクル権威ソースがアクティブな間だけ報告が適用されるように保護します。`--display-agent` は表示名を変更します。
+Herdr 管理のインテグレーションと並走するユーザーフックは、`report-agent` ではなくメタデータを使うべきです。メタデータは、インテグレーションの `idle`、`working`、`blocked` やセッション復元の権威を奪わずに表示を変えます。`--agent` と `--applies-to-source` は表示フィールド (`--title`、`--display-agent`、`--state-label`) だけを保護します。トークンパッチは常に適用され、クリアまたは TTL の更新は報告側が管理します。`--display-agent` は表示名を変更します。
 
 ```bash
 herdr pane report-metadata "$HERDR_PANE_ID" \
@@ -262,12 +275,12 @@ herdr pane report-metadata "$HERDR_PANE_ID" \
   --agent claude \
   --title "Refactor auth middleware" \
   --display-agent "Claude: auth" \
-  --custom-status "refactor auth" \
+  --token summary="refactor auth" \
   --state-label working="refactoring auth" \
   --ttl-ms 3600000
 ```
 
-カスタムステータスと状態ラベルは表示専用です。wait、通知、ワークスペースのロールアップは引き続き意味的な状態を使います。
+トークンと状態ラベルは表示専用です。wait、通知、ワークスペースのロールアップは引き続き意味的な状態を使います。
 
 ## インテグレーション状態のデバッグ
 
