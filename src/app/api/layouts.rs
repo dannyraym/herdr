@@ -95,6 +95,7 @@ impl App {
         let default_shell = self.state.default_shell.clone();
         let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
         let host_terminal_theme = self.state.host_terminal_theme;
+        let host_terminal_appearance = self.state.host_terminal_appearance;
         let extra_env = match super::env::normalize_launch_env(root_leaf.env.clone()) {
             Ok(env) => env,
             Err((code, message)) => return encode_error(id, &code, message),
@@ -117,6 +118,7 @@ impl App {
                     extra_env,
                     scrollback_limit_bytes,
                     host_terminal_theme,
+                    host_terminal_appearance,
                 )
             } else {
                 ws.create_tab(
@@ -125,6 +127,7 @@ impl App {
                     first_cwd,
                     scrollback_limit_bytes,
                     host_terminal_theme,
+                    host_terminal_appearance,
                     crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode),
                     extra_env,
                 )
@@ -348,10 +351,15 @@ impl App {
             return PathBuf::from(cwd);
         }
         let follow_cwd = replace_target.and_then(|(_, tab_idx)| {
-            let ws = self.state.workspaces.get(ws_idx)?;
-            let tab = ws.tabs.get(tab_idx)?;
-            let pane_id = tab.layout.focused();
-            tab.follow_cwd_for_pane(pane_id, &self.state.terminals, &self.terminal_runtimes)
+            let pane_id = self
+                .state
+                .workspaces
+                .get(ws_idx)?
+                .tabs
+                .get(tab_idx)?
+                .layout
+                .focused();
+            self.launch_cwd_for_pane_in_workspace(ws_idx, pane_id)
         });
         self.resolve_new_terminal_cwd(
             follow_cwd.or_else(|| self.focused_pane_cwd_in_workspace(ws_idx)),
@@ -430,11 +438,12 @@ impl App {
         let default_shell = self.state.default_shell.clone();
         let scrollback_limit_bytes = self.state.pane_scrollback_limit_bytes;
         let host_terminal_theme = self.state.host_terminal_theme;
+        let host_terminal_appearance = self.state.host_terminal_appearance;
         let cwd = pane
             .cwd
             .as_ref()
             .map(PathBuf::from)
-            .or_else(|| self.follow_cwd_for_pane_in_workspace(ws_idx, target_pane_id));
+            .or_else(|| self.launch_cwd_for_pane_in_workspace(ws_idx, target_pane_id));
         let extra_env = super::env::normalize_launch_env(pane.env.clone())
             .map_err(|(_, message)| message.to_string())?;
         let direction = match direction {
@@ -458,6 +467,7 @@ impl App {
                     extra_env,
                     scrollback_limit_bytes,
                     host_terminal_theme,
+                    host_terminal_appearance,
                     false,
                 )
             } else {
@@ -470,6 +480,7 @@ impl App {
                     cwd,
                     scrollback_limit_bytes,
                     host_terminal_theme,
+                    host_terminal_appearance,
                     crate::pane::PaneShellConfig::new(&default_shell, self.state.shell_mode),
                     extra_env,
                     false,
