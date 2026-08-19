@@ -1,5 +1,10 @@
 # herdr
 
+> **This is a fork.** Upstream is [herdrdev/herdr](https://github.com/herdrdev/herdr).
+> Stacked panes come from [universalmind303/herdr](https://github.com/universalmind303/herdr)
+> by [Cory Grinstead](https://github.com/universalmind303); this fork adds keybinding
+> config for the stacked-pane actions. See [NOTICE](NOTICE) for the full lineage.
+
 
 <p align="center">
   <img src="assets/logo.png" alt="herdr" width="100" />
