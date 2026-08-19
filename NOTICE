@@ -1,0 +1,30 @@
+herdr
+Copyright the herdr authors (https://github.com/herdrdev/herdr)
+
+Licensed under the Apache License, Version 2.0. See LICENSE.
+
+This repository is a modified distribution of herdr. Changes are recorded
+below as required by Apache License 2.0, section 4(b).
+
+Lineage
+-------
+
+  herdrdev/herdr             upstream project
+    -> universalmind303/herdr  adds stacked panes
+         -> dannyraym/herdr      adds keybinding config for the stacked actions
+
+Modifications
+-------------
+
+Stacked panes (pane stacking, LayoutNode::Stack, `pane split --stacked`, and
+the stack navigation and mouse handling that go with it) were written by
+Cory Grinstead (universalmind303) in commit eeffd72, carried here unmodified.
+Original authorship is preserved in this repository's git history.
+
+Added on top of that work:
+
+  * config: allow binding stack_pane, unstack_pane, and break_pane, so the
+    stacked-pane actions are reachable from config.toml keybindings rather
+    than by mouse only. (src/config/model.rs)
+
+No files from the upstream project have been removed or relicensed.
